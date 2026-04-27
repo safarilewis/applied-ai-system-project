@@ -1,175 +1,268 @@
-# 🎵 Music Recommender Simulation
+# NextPlay — AI-Powered Music Recommender
 
-## Project Summary
-
-In this project you will build and explain a small music recommender system.
-
-Your goal is to:
-
-- Represent songs and a user "taste profile" as data
-- Design a scoring rule that turns that data into recommendations
-- Evaluate what your system gets right and wrong
-- Reflect on how this mirrors real world AI recommenders
-
-This project simulates a simple content-based music recommender called `NextPlay`. Real platforms like Spotify, TikTok, and YouTube combine many signals, including listening history, likes, skips, watch time, playlists, and what similar users enjoyed, to predict what a person might want next. My version keeps the idea small and transparent by focusing on song attributes inside the dataset, then comparing them against a user taste profile to rank songs that best match the user's vibe.
+> CodePath AI110 · Project 4 · Applied AI System
+> Extended from the Module 3 Music Recommender base project.
 
 ---
 
-## How The System Works
+## Base Project
 
-Real-world recommenders usually mix two big approaches. Collaborative filtering looks at behavior patterns across many users, such as "people who liked this also liked that," while content-based filtering looks directly at the item's attributes, such as genre, mood, energy, tempo, or other audio features. `NextPlay` uses the content-based approach because it is easier to explain: each song is treated like a bundle of features, each user profile stores target preferences, and the recommender calculates a weighted score for every song before sorting the catalog from highest to lowest.
-
-For the simulation design, I expanded the original 10-song catalog to 18 songs so the dataset includes more variety across genres and moods such as EDM, folk, blues, metal, reggaeton, acoustic, and world. I kept the existing numeric features `energy`, `tempo_bpm`, `valence`, `danceability`, and `acousticness` because they capture different parts of a song's vibe. In my experience, energy alone is not enough to describe musical feel, so keeping valence and acousticness in the dataset gives the recommender room to distinguish between something intense, playful, peaceful, or dreamy even if two songs have similar tempo.
-
-This version will prioritize genre and mood as the strongest categorical signals, then use energy as a numeric "closeness" score. Instead of rewarding songs for having higher energy in general, the system rewards songs that are closer to the user's target energy. That matters because a user who wants chill lofi should not get high-energy rock just because the energy value is large. After every song gets a score, a ranking rule sorts the list so the top `k` songs become the recommendations.
-
-### Features Used
-
-`Song` features:
-
-- `title`
-- `artist`
-- `genre`
-- `mood`
-- `energy`
-- `tempo_bpm`
-- `valence`
-- `danceability`
-- `acousticness`
-
-`UserProfile` features:
-
-- `favorite_genre`
-- `favorite_mood`
-- `target_energy`
-- `likes_acoustic`
-
-### Example Taste Profile
-
-This is the main user profile I plan to test first:
-
-```python
-{
-    "favorite_genre": "lofi",
-    "favorite_mood": "chill",
-    "target_energy": 0.38,
-    "likes_acoustic": True
-}
-```
-
-I chose this profile because it should clearly separate "chill lofi" from "intense rock." A low target energy and acoustic preference should pull calmer songs upward, while the genre and mood fields help avoid recommending high-energy tracks that only happen to share one loose vibe feature.
-
-### Algorithm Recipe
-
-- Add `+2.0` points for a genre match because genre usually shapes the listener's main intent.
-- Add `+1.0` point for a mood match because mood matters, but should not completely overpower genre.
-- Add up to `+1.5` points for energy similarity using a closeness rule such as `1.5 * (1 - abs(song_energy - target_energy))`.
-- Add a small acousticness bonus, such as `+0.5 * acousticness`, when the user likes acoustic songs.
-- Add a small acousticness penalty, such as `+0.5 * (1 - acousticness)`, when the user prefers less acoustic songs.
-- Sort songs by total score from highest to lowest and return the top `k` results.
-
-### Why We Need Scoring and Ranking
-
-- A scoring rule explains how one song is judged against one user profile.
-- A ranking rule compares all scored songs against each other so the system can choose the best recommendations.
-
-Without scoring, the system has no way to judge a single song. Without ranking, it has no way to turn many scored songs into a final recommendation list.
-
-### Data Flow
-
-```mermaid
-flowchart LR
-    A[User Preferences] --> B[Load Songs from CSV]
-    B --> C[Loop Through Each Song]
-    A --> C
-    C --> D[Apply Weighted Scoring Rule]
-    D --> E[Store Song, Score, and Reasons]
-    E --> F[Sort by Highest Score]
-    F --> G[Return Top K Recommendations]
-```
-
-### Potential Biases I Expect
-
-- The system may over-prioritize genre and miss songs from other genres that still match the user's mood and energy.
-- A small dataset can create a filter bubble because the recommender can only choose from a narrow catalog.
-- If some moods or genres appear less often in the CSV, those listeners will get weaker or less varied results.
-- A fixed user profile structure simplifies taste too much, so complex listeners may be poorly represented.
+**Module 3 — Music Recommender Simulation (`NextPlay`)**
+The original Module 3 project built a content-based music recommender that scores every song in a small CSV catalog against a hand-crafted user taste profile (genre, mood, energy, acoustic preference) and returns a ranked top-5 list with per-song score explanations. It demonstrated how collaborative vs. content-based filtering works and ran four fixed profiles—including one adversarial edge case—to show where the scoring logic succeeded and where it broke down.
 
 ---
 
-## Getting Started
+## What This Extended System Does
 
-### Setup
+This Project 4 extension wraps the Module 3 recommender in a **Retrieval-Augmented Generation (RAG)** pipeline powered by Claude. Instead of requiring the user to fill in a structured form, they type any free-text description of their mood or music taste. Claude classifies that text into a structured `UserProfile`, the existing `Recommender` engine scores and ranks songs from `songs.csv`, and then Claude generates a warm natural-language explanation of why the top songs were chosen.
 
-1. Create a virtual environment (optional but recommended):
+---
 
-   ```bash
-   python -m venv .venv
-   source .venv/bin/activate      # Mac or Linux
-   .venv\Scripts\activate         # Windows
+## Architecture
 
-2. Install dependencies
+```
+User Input (free text)
+        │
+        ▼
+┌──────────────────────┐
+│  Input Validation    │ ◄── guardrail: rejects empty / gibberish input,
+│  (validate_input)    │     logs errors to rag_errors.log
+└──────────┬───────────┘
+           │  valid text
+           ▼
+┌──────────────────────┐
+│  Claude Classifier   │  claude-haiku-4-5
+│  (classify_input)    │  parses free text → UserProfile
+└──────────┬───────────┘
+           │  UserProfile
+           ▼
+┌──────────────────────┐        ┌───────────────┐
+│  Recommender engine  │◄───────│   songs.csv   │
+│  (Recommender.       │        │  18-song      │
+│   recommend)         │        │  catalog      │
+└──────────┬───────────┘        └───────────────┘
+           │  top 3 Song objects
+           ▼
+┌──────────────────────┐
+│  Claude Explainer    │  claude-haiku-4-5
+│  (explain_recs)      │  generates natural-language explanation
+└──────────┬───────────┘
+           │
+           ▼
+       Output (printed to terminal)
+```
+
+![System architecture diagram](assets/architecture.png)
+
+The guardrail rejects empty strings, text shorter than 5 characters, and inputs with fewer than 2 real alphabetic words. All rejected inputs and API errors are appended to `rag_errors.log` in the project root.
+
+---
+
+## Setup
+
+### 1. Clone the repo
+
+```bash
+git clone https://github.com/LewSaf/applied-ai-system-project.git
+cd applied-ai-system-project
+```
+
+### 2. Create a virtual environment (recommended)
+
+```bash
+python -m venv .venv
+source .venv/bin/activate        # Mac / Linux
+.venv\Scripts\activate           # Windows
+```
+
+### 3. Install dependencies
 
 ```bash
 pip install -r requirements.txt
 ```
 
-3. Run the app:
+### 4. Set your Anthropic API key
+
+```bash
+export ANTHROPIC_API_KEY=your-key-here   # Mac / Linux
+set ANTHROPIC_API_KEY=your-key-here      # Windows Command Prompt
+```
+
+Get a key at [console.anthropic.com](https://console.anthropic.com/).
+
+---
+
+## Running the System
+
+### Original simulation mode (no API key required)
+
+Runs the Module 3 profiles and weight-shift experiment:
 
 ```bash
 python -m src.main
 ```
 
-### Running Tests
+### RAG demo mode (requires `ANTHROPIC_API_KEY`)
 
-Run the starter tests with:
+Runs 3 hardcoded example inputs through the full Claude-powered pipeline:
 
 ```bash
-pytest
+python -m src.main --rag
 ```
 
-You can add more tests in `tests/test_recommender.py`.
+### Test harness
+
+```bash
+# With API key — runs all 5 live tests
+python tests/test_rag.py
+
+# Via pytest (skips if key is absent)
+pytest tests/test_rag.py -v
+```
 
 ---
 
-## Experiments You Tried
+## Sample Interactions
 
-Completed evaluation work:
+The outputs below are real responses from the system.
 
-- Tested `High-Energy Pop`, `Chill Lofi`, `Deep Intense Rock`, and one adversarial profile called `Sad but Energetic`.
-- Verified that `Sunrise City` ranked first for high-energy pop, `Library Rain` ranked first for chill lofi, and `Storm Runner` ranked first for deep intense rock.
-- Ran a weight-shift experiment where the genre weight was cut in half and the energy weight was doubled.
-- Observed that this experiment moved `Rooftop Lights` above `Gym Hero` for the pop profile, which made the system more energy-sensitive but less loyal to the user's favorite genre.
+**Input 1**
+```
+I need something calm and acoustic to focus while studying
+```
+```
+Classified profile → genre: lofi, mood: focused, energy: 0.35, acoustic: True
 
-## CLI Output Screenshot
+Top 3 recommendations:
+  1. Library Rain by Paper Lanterns (genre: lofi, energy: 0.35)
+  2. Focus Flow by LoRoom (genre: lofi, energy: 0.40)
+  3. Midnight Coding by LoRoom (genre: lofi, energy: 0.42)
 
-This screenshot shows the terminal output for the current CLI-first recommender run, including the ranked songs, scores, and explanation reasons.
+Explanation:
+  Based on your need for calm, focused study music, these three tracks were
+  chosen specifically for you. "Library Rain" by Paper Lanterns perfectly
+  matches your preference for quiet, acoustic lofi — its gentle energy of
+  0.35 sits right where you want it. "Focus Flow" and "Midnight Coding" both
+  share the same lofi character with slightly higher energy that keeps you
+  alert without breaking your concentration.
+```
 
-![CLI recommender output](Screenshot%202026-04-12%20at%2023.13.07.png)
+**Input 2**
+```
+Give me high-energy pop bangers for my workout
+```
+```
+Classified profile → genre: pop, mood: energetic, energy: 0.88, acoustic: False
 
-## Testing Profile Screenshots
+Top 3 recommendations:
+  1. Sunrise City by Neon Echo (genre: pop, energy: 0.82)
+  2. Gym Hero by Max Pulse (genre: pop, energy: 0.93)
+  3. Bassline Sprint by Chrome Youth (genre: edm, energy: 0.95)
 
-These screenshots show the Phase 4 evaluation runs for different recommendation profiles.
+Explanation:
+  You asked for high-energy workout fuel and that is exactly what you are
+  getting. "Gym Hero" hits the hardest at 0.93 energy and was practically
+  made for the weight rack. "Sunrise City" keeps the pop momentum going with
+  a punchy 118 BPM groove, and "Bassline Sprint" rounds out the set with
+  pure EDM drive to carry you through the last reps.
+```
 
-![Testing profile output 1](testingProfiles.png)
+**Input 3**
+```
+I'm feeling melancholy tonight — something slow and soulful please
+```
+```
+Classified profile → genre: blues, mood: soulful, energy: 0.35, acoustic: True
 
-![Testing profile output 2](testingProfiles1.png)
+Top 3 recommendations:
+  1. Velvet Alley by Blue Hour Trio (genre: blues, energy: 0.47)
+  2. Porchlight Letters by Maple Thread (genre: folk, energy: 0.33)
+  3. Sunday Harbor by Tidal Bloom (genre: acoustic, energy: 0.26)
+
+Explanation:
+  For a melancholy evening you deserve music that holds space for that
+  feeling rather than rushing past it. "Velvet Alley" wraps you in blues
+  warmth — soulful vocals over a slow groove that understands quiet sadness.
+  "Porchlight Letters" and "Sunday Harbor" both lean acoustic and peaceful,
+  giving you the gentle, unhurried sound that fits tonight perfectly.
+```
 
 ---
 
-## Limitations and Risks
+## Design Decisions
 
-This recommender still has important limits. It only works on a tiny hand-written catalog, it cannot understand lyrics or context, and it depends heavily on the few features I selected. Even with more songs added, it may still over-favor whichever genres are most common in the CSV or whichever features receive the largest weights.
+**Why RAG?**
+The original Module 3 system required users to manually fill in four structured fields. Most people think in feelings and descriptions, not in genres and numeric energy levels. Adding a Claude classification step lets the system meet users where they are — in natural language — while keeping the deterministic recommender engine doing what it does well: reproducible, explainable scoring.
+
+**Why separate classify → recommend → explain?**
+Each step is independently testable and replaceable. The classifier can be swapped for a different model without touching the recommender. The recommender can be upgraded with more songs or different weights without touching Claude. The explainer can be tuned for tone without affecting either. This separation also makes the RAG pattern explicit and visible in code, which was a learning goal.
+
+**Why `claude-haiku-4-5` specifically?**
+Haiku is fast and cheap for the two classification tasks here — returning a JSON object and writing 2-4 sentences. Latency matters for an interactive demo, and neither task requires Sonnet-level reasoning. The model can easily be swapped to Sonnet by changing one constant in `rag.py`.
+
+**Tradeoffs**
+- The catalog is only 18 songs, so some valid mood descriptions map to weak matches because the genre simply is not represented.
+- The classifier can produce a genre that does not appear in `songs.csv` (e.g., "country"), which means the Recommender falls back to energy/mood scoring alone. A future fix would validate the classified genre against the catalog before scoring.
+- Adding Claude adds latency (~1-2 s per call) and requires a paid API key, which the original simulation did not need.
+
+---
+
+## Testing Summary
+
+```
+[chill-study]    PASS — genre: lofi,  mood: focused,    songs: Library Rain, Focus Flow, Midnight Coding
+[high-energy]    PASS — genre: pop,   mood: energetic,  songs: Sunrise City, Gym Hero, Bassline Sprint
+[sad-evening]    PASS — genre: blues, mood: soulful,    songs: Velvet Alley, Porchlight Letters, Sunday Harbor
+[late-night]     PASS — genre: synthwave, mood: moody,  songs: Night Drive Loop, Pixel Hearts, Bassline Sprint
+[upbeat-party]   PASS — genre: edm,   mood: energetic,  songs: Bassline Sprint, Gym Hero, Pixel Hearts
+
+==================================================
+Result: 5/5 tests passed
+==================================================
+```
+
+Each test checks three things: a `UserProfile` was returned, at least one `Song` was recommended, and a non-empty explanation string was returned. All five passed on the first run with no prompt adjustments needed.
+
+The one reliability concern observed during manual testing: when a user's description is vague (e.g., "music that matches my vibe"), Claude tends to default toward pop/happy/0.5 — a reasonable fallback but not a personalized one. Adding a follow-up clarification step would improve this case.
 
 ---
 
 ## Reflection
 
-Read and complete `model_card.md`:
+This project showed me that the value of RAG is not just in what the AI retrieves — it is in how the retrieval step forces you to think clearly about your data model. I had to design a `UserProfile` that was rich enough for Claude to fill in from a sentence, but structured enough for a deterministic scoring engine to use; bridging those two worlds is where most of the real AI engineering work happened. As an AI engineer, I want employers to see that I can integrate language models responsibly — with guardrails, logging, modular design, and honest documentation of limitations — rather than just making something that produces impressive-sounding output.
 
-[**Model Card**](model_card.md)
-[**Profile Comparison Reflection**](reflection.md)
+---
 
-Building `NextPlay` showed me that recommendation systems do not have to be very complex to feel convincing. A simple weighted score can still produce results that seem thoughtful when the features and weights line up with the user's taste. The edge-case profile also made it clear that the system is only as good as the data and rules behind it.
+## Watch Demo
 
-The biggest lesson for me was how easy it is for hand-picked weights to shape the final ranking. A small bonus for genre or acousticness can have a big effect when the dataset is small. That made me think more carefully about bias, because even a simple classroom recommender can end up reflecting the assumptions built into its data and scoring logic.
+[Watch Demo](YOUR_LOOM_LINK_HERE)
+
+---
+
+## Repository Structure
+
+```
+applied-ai-system-project/
+├── assets/
+│   └── architecture.png       # System diagram
+├── data/
+│   └── songs.csv              # 18-song catalog
+├── src/
+│   ├── __init__.py
+│   ├── main.py                # CLI entry point (--rag flag added)
+│   ├── rag.py                 # RAG pipeline (new)
+│   └── recommender.py         # Module 3 engine (unchanged)
+├── tests/
+│   ├── conftest.py
+│   ├── test_rag.py            # RAG evaluation harness (new)
+│   └── test_recommender.py    # Module 3 unit tests (unchanged)
+├── model_card.md
+├── rag_errors.log             # Error log (auto-created on first run)
+├── requirements.txt
+└── README.md
+```
+
+## Related Documents
+
+- [Model Card](model_card.md) — limitations, biases, misuse risks, AI collaboration reflection
+- [Original Reflection](reflection.md) — Module 3 profile comparison notes
