@@ -12,7 +12,9 @@
       "Bash(/opt/anaconda3/bin/python -c \"import matplotlib; print\\(matplotlib.__file__\\)\")",
       "Bash(/opt/anaconda3/bin/python -)",
       "Bash(git commit -m 'docs: add system architecture diagram *)",
-      "Bash(git commit -m 'docs: complete model_card reflection for Project 4 *)"
+      "Bash(git commit -m 'docs: complete model_card reflection for Project 4 *)",
+      "Bash(pytest tests/test_recommender.py -q)",
+      "Bash(git commit -m 'feat: add explicit retrieve\\(\\) step to RAG pipeline *)"
     ]
   }
 }
