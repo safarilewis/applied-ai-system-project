@@ -1,7 +1,12 @@
-"""CLI runner for the Music Recommender Simulation."""
+"""CLI runner for the Music Recommender — simulation mode and RAG demo mode."""
+
+import argparse
+import sys
 
 from .recommender import DEFAULT_WEIGHTS, load_songs, recommend_songs
 
+
+# ── Simulation mode (unchanged from Module 3) ─────────────────────────────────
 
 PROFILES = {
     "High-Energy Pop": {
@@ -31,7 +36,9 @@ PROFILES = {
 }
 
 
-def print_recommendations(profile_name: str, recommendations: list[tuple[dict, float, str]]) -> None:
+def print_recommendations(
+    profile_name: str, recommendations: list[tuple[dict, float, str]]
+) -> None:
     """Print one recommendation block in a readable CLI format."""
     print(f"\nTop recommendations for {profile_name}:\n")
     for index, rec in enumerate(recommendations, start=1):
@@ -45,7 +52,7 @@ def print_recommendations(profile_name: str, recommendations: list[tuple[dict, f
         print()
 
 
-def main() -> None:
+def run_simulation() -> None:
     songs = load_songs("data/songs.csv")
     print(f"Loaded songs: {len(songs)}")
 
@@ -76,6 +83,92 @@ def main() -> None:
         f"acoustic={DEFAULT_WEIGHTS['acoustic']}"
     )
     print_recommendations("High-Energy Pop (Experiment)", experiment_recommendations)
+
+
+# ── RAG demo mode ─────────────────────────────────────────────────────────────
+
+_DEMO_INPUTS = [
+    "I need something calm and acoustic to focus while studying",
+    "Give me high-energy pop bangers for my workout session",
+    "I'm feeling melancholy tonight — something slow and soulful please",
+]
+
+
+def run_rag_demo() -> None:
+    try:
+        from .rag import run_rag_pipeline, validate_input
+    except ImportError as exc:
+        print(f"ERROR: Could not import RAG module: {exc}", file=sys.stderr)
+        sys.exit(1)
+
+    print("=" * 60)
+    print("  NextPlay RAG Demo — Claude-powered music recommendations")
+    print("=" * 60)
+
+    for i, text in enumerate(_DEMO_INPUTS, 1):
+        print(f"\n[Demo {i}/3] Input: \"{text}\"\n")
+
+        # Input validation shown explicitly so the guardrail is visible
+        try:
+            validate_input(text)
+        except ValueError as exc:
+            print(f"  Validation failed: {exc}")
+            continue
+
+        try:
+            result = run_rag_pipeline(text)
+        except EnvironmentError as exc:
+            print(f"  ERROR: {exc}", file=sys.stderr)
+            sys.exit(1)
+        except ValueError as exc:
+            print(f"  Pipeline error: {exc}")
+            continue
+
+        profile = result["profile"]
+        print(
+            f"  Classified profile → genre: {profile.favorite_genre}, "
+            f"mood: {profile.favorite_mood}, "
+            f"energy: {profile.target_energy:.2f}, "
+            f"acoustic: {profile.likes_acoustic}"
+        )
+        print()
+        print("  Top 3 recommendations:")
+        for j, song in enumerate(result["recommendations"], 1):
+            print(
+                f"    {j}. {song.title} by {song.artist}"
+                f" (genre: {song.genre}, energy: {song.energy:.2f})"
+            )
+        print()
+        print("  Explanation:")
+        for line in result["explanation"].splitlines():
+            print(f"    {line}")
+        print("\n" + "-" * 60)
+
+
+# ── Entry point ───────────────────────────────────────────────────────────────
+
+def main() -> None:
+    parser = argparse.ArgumentParser(
+        description="NextPlay Music Recommender",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=(
+            "Modes:\n"
+            "  (default)  Run the Module 3 simulation with hardcoded profiles\n"
+            "  --rag      Run the RAG demo: Claude classifies 3 example inputs\n"
+            "             and explains the recommendations (requires ANTHROPIC_API_KEY)"
+        ),
+    )
+    parser.add_argument(
+        "--rag",
+        action="store_true",
+        help="Run the Claude-powered RAG pipeline demo",
+    )
+    args = parser.parse_args()
+
+    if args.rag:
+        run_rag_demo()
+    else:
+        run_simulation()
 
 
 if __name__ == "__main__":
