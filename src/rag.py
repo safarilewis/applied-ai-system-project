@@ -114,7 +114,61 @@ def _strip_fences(text: str) -> str:
     return text.strip()
 
 
+_STOP_WORDS = {
+    "a", "an", "the", "i", "me", "my", "and", "or", "for", "to", "of",
+    "in", "on", "at", "is", "it", "this", "that", "with", "please",
+    "something", "some", "give", "want", "need", "like", "love", "feel",
+    "im", "feeling", "tonight", "while", "really", "just", "bit", "get",
+    "me", "when", "am", "be", "can", "do",
+}
+
+
+def _tokenize(text: str) -> set[str]:
+    """Lowercase and split text into meaningful word tokens, removing stop words."""
+    import re
+    words = re.findall(r"[a-z]+", text.lower())
+    return {w for w in words if w not in _STOP_WORDS and len(w) >= 2}
+
+
 # ── Public API ────────────────────────────────────────────────────────────────
+def retrieve(text: str, songs: list[Song], k: int = 5) -> list[Song]:
+    """
+    Keyword-based retrieval step: search songs.csv as text documents.
+
+    Tokenizes the raw user input and scores each song by counting token
+    overlaps against its title, artist, genre, and mood fields.  Returns
+    the top-k candidates; if fewer than k songs have any keyword match,
+    the remainder are filled from the un-matched songs so the returned
+    list always contains exactly min(k, len(songs)) entries.
+
+    This step is intentionally separate from Recommender scoring so the
+    two stages — retrieval and ranking — stay independently testable.
+    """
+    query_tokens = _tokenize(text)
+    logger.info("Retrieve: query tokens = %s", query_tokens)
+
+    scored: list[tuple[int, Song]] = []
+    for song in songs:
+        doc_tokens = _tokenize(
+            f"{song.title} {song.artist} {song.genre} {song.mood}"
+        )
+        overlap = len(query_tokens & doc_tokens)
+        scored.append((overlap, song))
+
+    scored.sort(key=lambda pair: pair[0], reverse=True)
+
+    # Split into matched (overlap > 0) and unmatched, then merge to fill k slots
+    matched = [s for score, s in scored if score > 0]
+    unmatched = [s for score, s in scored if score == 0]
+    candidates = (matched + unmatched)[:k]
+
+    logger.info(
+        "Retrieve: returning %d candidates (matched=%d, fallback=%d)",
+        len(candidates), len(matched[:k]), max(0, k - len(matched)),
+    )
+    return candidates
+
+
 def validate_input(text: str) -> str:
     """
     Clean and validate free-text input.
@@ -232,8 +286,14 @@ def run_rag_pipeline(text: str) -> dict:
 
     profile = classify_input(text)
 
-    songs = _load_songs()
-    recommender = Recommender(songs)
+    all_songs = _load_songs()
+
+    # Retrieval: keyword-match the raw input against the catalog to get candidates
+    candidates = retrieve(text, all_songs, k=5)
+    logger.info("Retrieved candidates: %s", [s.title for s in candidates])
+
+    # Ranking: score and rank only the retrieved candidates, not the full catalog
+    recommender = Recommender(candidates)
     top_songs = recommender.recommend(profile, k=3)
     logger.info("Top recommendations: %s", [s.title for s in top_songs])
 
