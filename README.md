@@ -235,7 +235,7 @@ This project showed me that the value of RAG is not just in what the AI retrieve
 
 ## Watch Demo
 
-[Watch Demo](YOUR_LOOM_LINK_HERE)
+
 
 ---
 
